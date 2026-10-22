@@ -1,0 +1,43 @@
+name: Build ReChat
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          cache: true
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Compile
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist
+          Copy-Item build/Release/ReChat.exe dist/
+          windeployqt --release --no-translations dist/ReChat.exe
+          Copy-Item README.md dist/
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          cp build/ReChat dist/
+          cp README.md dist/
+          cp assets/logo.svg dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ReChat-${{ runner.os }}
+          path: dist/
+          if-no-files-found: error

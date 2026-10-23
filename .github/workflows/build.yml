@@ -1,5 +1,10 @@
 name: Build ReChat
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -29,6 +34,15 @@ jobs:
           Copy-Item build/Release/ReChat.exe dist/
           windeployqt --release --no-translations dist/ReChat.exe
           Copy-Item README.md dist/
+      - name: Create Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { throw "Inno Setup compiler missing: $iscc" }
+          & $iscc "/DAppVersion=0.1.0" "installer/ReChat.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
       - name: Package Linux
         if: runner.os == 'Linux'
         run: |
@@ -41,3 +55,26 @@ jobs:
           name: ReChat-${{ runner.os }}
           path: dist/
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: ReChat-Windows-Installer
+          path: installer/output/*.exe
+          if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ReChat-Windows-Installer
+          path: release
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" release/*.exe --title "ReChat ${GITHUB_REF_NAME}" --generate-notes --verify-tag
